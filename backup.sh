@@ -7,12 +7,14 @@ if (( $EUID != 0 )); then
     exit
 fi
 
+check_dependencies
 
 dialog --title "LTO Backup" --msgbox "Thank you for using LTO-Backup." $HEIGHT $WIDTH
 
 dialog --title "Confirmation" --yesno "This tool is still in development, accept risk and continue?" $HEIGHT $WIDTH
 
-case $? in
+rt=$?
+case $rt in
     1)
         clear
         echo "Backup aborted."
@@ -21,7 +23,7 @@ case $? in
 esac
 
 tape_section=$(dialog \
-    --backtitle "LTO Tape Type" \
+    --backtitle "LTO Backup" \
     --title "Tape Type" \
     --clear \
     --cancel-label "Exit" \
@@ -53,3 +55,29 @@ case $tape_section in
 esac
 
 detect_tape
+
+task_section=$(dialog \
+    --backtitle "LTO Backup" \
+    --title "Select Task" \
+    --clear \
+    --cancel-label "Exit" \
+    --menu "Please select the task you want to perform:" $HEIGHT $WIDTH 4 \
+    "1" "Backup" \
+    "2" "Restore" \
+    --output-fd 1)
+
+case $task_section in
+    1 )
+      select_source
+      confirm "Confirm backup $BACKUP_SOURCE to $TAPE_DEVICE?"
+      backup
+      ;;
+    2 )
+      TAPE_SIZE=$LTO4_SIZE
+      ;;
+    * )
+      clear
+      echo "Backup aborted."
+      exit
+      ;;
+esac
