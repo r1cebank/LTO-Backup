@@ -24,13 +24,14 @@ WIDTH=80
 TAR_ARGS="-b 1024"
 
 ## Mbuffer options
-TAPE_BUFFER_SIZE="3g"
+TAPE_BUFFER_SIZE="16G"
 
 ## Command location
 TAR=/bin/tar
 MT=/bin/mt-st
 ZSTD=/usr/bin/zstd
 MBUFFER=/usr/bin/mbuffer
+OPENSSL=/usr/bin/openssl
 
 ## Command
 COMPRESSION_CMD="zstd -3"
@@ -38,4 +39,9 @@ DECOMPRESSION_CMD="zstd -3 -d"
 
 
 ## Logs
-FILE_LOG="files.log"
+FILE_LOG="files-$(date -I).log"
+RESTORE_FILE_LOG="restore-$(date -I).log"
+
+## Encryption
+ENABLE_ENCRYPTION=false
+ENCRYPTION_KEY=
