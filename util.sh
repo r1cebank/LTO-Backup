@@ -102,6 +102,7 @@ detect_tape() {
 }
 
 eject_tape() {
+    echo "Ejecting tape $TAPE_DEVICE $(date)" >> $BACKUP_LOG
     [ -e $MT ] && mt -f $TAPE_DEVICE status | grep ONLINE >/dev/null
         rt=$?
     if [[ $rt -eq 0 ]]
@@ -115,13 +116,29 @@ wait_for_tape() {
     while true
     do
         mt -f $TAPE_DEVICE status | grep ONLINE >/dev/null
-            rt=$?
-            if [[ $rt -eq 0 ]]
-            then
+        rt=$?
+        if [[ $rt -eq 0 ]]
+        then
             break;
         fi
         dialog --title "LTO Backup" --msgbox "Please load tape to device and select OK." $HEIGHT $WIDTH
     done
+    echo "Tape loaded $TAPE_DEVICE $(date)" >> $BACKUP_LOG
+}
+
+wait_for_tape_silent() {
+    echo "Waiting new tape in: $TAPE_DEVICE $(date)" >> $BACKUP_LOG
+    while true
+    do
+        mt -f $TAPE_DEVICE status | grep ONLINE >/dev/null
+        rt=$?
+        if [[ $rt -eq 0 ]]
+        then
+            break;
+        fi
+        sleep 2
+    done
+    echo "Tape loaded $TAPE_DEVICE $(date)" >> $BACKUP_LOG
 }
 
 wait_for_next_tape() {
@@ -141,6 +158,7 @@ select_source() {
         dialog --title "LTO Backup" --msgbox "You selected to backup ${BACKUP_SOURCE}." $HEIGHT $WIDTH
     else
         dialog --title "LTO Backup" --msgbox "Backup folder does not exist." $HEIGHT $WIDTH
+        exit 1
     fi
 }
 
@@ -156,11 +174,12 @@ select_destination() {
         dialog --title "LTO Backup" --msgbox "You selected to restore to ${RESTORE_DESTINATION}." $HEIGHT $WIDTH
     else
         dialog --title "LTO Backup" --msgbox "Restore folder does not exist." $HEIGHT $WIDTH
+        exit 1
     fi
 }
 
 estimate_size() {
-    du -sh $BACKUP_SOURCE | cut -f1
+    du -sh "$BACKUP_SOURCE" | cut -f1
 }
 
 estimate_time() {
@@ -169,7 +188,7 @@ estimate_time() {
 }
 
 estimate_raw_size() {
-    du -sbc $BACKUP_SOURCE | cut -f1 | tail -n1
+    du -sbc "$BACKUP_SOURCE" | cut -f1 | tail -n1
 }
 
 confirm() {
@@ -259,15 +278,17 @@ backup() {
 
     wait_for_tape
 
+    echo "Backup started for $BACKUP_SOURCE to $TAPE_DEVICE $(date)" >> $BACKUP_LOG
+
     ## Start the backup task
     case $ENABLE_ENCRYPTION in
         true )
-            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - $BACKUP_SOURCE  2> $FILE_LOG | \
-            pipemeter -s $size -a -b $BLOCK_SIZE -l | \
+            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE"  2> $FILE_LOG | \
+            pipemeter -s $raw_size -a -b $BLOCK_SIZE -l | \
             $COMPRESSION_CMD | \
             $OPENSSL enc -aes-256-cbc -pass file:$ENCRYPTION_KEY | \
             $MBUFFER \
-                -A "bash -c \"TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape\"" \
+                -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_tape_silent\"" \
                 -P 100 \
                 -m $TAPE_BUFFER_SIZE \
                 -f \
@@ -276,11 +297,11 @@ backup() {
                 -s$BLOCK_SIZE | dialog --programbox "Backup Progress" $HEIGHT $WIDTH
         ;;
         false )
-            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - $BACKUP_SOURCE 2> $FILE_LOG | \
-            pipemeter -s $size -a -b $BLOCK_SIZE -l | \
+            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE" 2> $FILE_LOG | \
+            pipemeter -s $raw_size -a -b $BLOCK_SIZE -l | \
             $COMPRESSION_CMD | \
             $MBUFFER \
-                -A "bash -c \"TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape\"" \
+                -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_tape_silent\"" \
                 -P 100 \
                 -m $TAPE_BUFFER_SIZE \
                 -f \
@@ -298,8 +319,10 @@ backup() {
     rt=$?
     if [ ! $rt -eq 0 ]
     then
+        echo "Backup failed $rt $(date)" >> $BACKUP_LOG
         dialog --title "LTO Backup" --msgbox "Backup failed tar $rt." $HEIGHT $WIDTH
     else
+        echo "Backup finished $(date)" >> $BACKUP_LOG
         dialog --title "LTO Backup" --msgbox "Backup finished successfully." $HEIGHT $WIDTH
     fi
     eject_tape
@@ -318,7 +341,7 @@ restore() {
     wait_for_tape
 
     $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-        -A "bash -c \"TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape\"" \
+        -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_tape_silent\"" \
         -P 100 \
         -m 0.5g \
         -f \
@@ -326,7 +349,7 @@ restore() {
         -q \
         -s$BLOCK_SIZE |
         $DECOMPRESSION_CMD | \
-        $TAR $TAR_ARGS -xvf - -C $RESTORE_DESTINATION 2> $RESTORE_FILE_LOG
+        $TAR $TAR_ARGS -xvf - -C "$RESTORE_DESTINATION" 2> $RESTORE_FILE_LOG
 
     rt=$?
     if [ ! $rt -eq 0 ]
@@ -351,7 +374,7 @@ list_backups() {
     wait_for_tape
 
     $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-        -A "bash -c \"TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape\"" \
+        -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_tape_silent\"" \
         -P 100 \
         -m 0.5g \
         -f \

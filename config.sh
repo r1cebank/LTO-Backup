@@ -9,7 +9,7 @@ LTO6_SIZE="2500*1000*1000*1000"
 ## Default selectin will be LTO6, but can be configured
 TAPE_SIZE=$LTO6_SIZE
 
-TAPE_SPEED="70*1000*1000"
+TAPE_SPEED="160*1000*1000"
 BLOCK_SIZE="512K"
 
 ## Backup source and restore destination
@@ -24,7 +24,7 @@ WIDTH=80
 TAR_ARGS="-b 1024"
 
 ## Mbuffer options
-TAPE_BUFFER_SIZE="16G"
+TAPE_BUFFER_SIZE="26G"
 
 ## Command location
 TAR=/bin/tar
@@ -40,6 +40,7 @@ DECOMPRESSION_CMD="zstd -3 -d"
 
 ## Logs
 FILE_LOG="files-$(date -I).log"
+BACKUP_LOG="backup-$(date -I).log"
 RESTORE_FILE_LOG="restore-$(date -I).log"
 
 ## Encryption
