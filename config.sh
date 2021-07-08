@@ -1,5 +1,5 @@
 ## Default tape device, assuming only single SCSI tape device is attached
-TAPE_DEVICE="/dev/st1"
+TAPE_DEVICE="/dev/st0"
 
 LTO3_SIZE="400*1000*1000*1000"
 LTO4_SIZE="800*1000*1000*1000"
@@ -21,10 +21,10 @@ HEIGHT=20
 WIDTH=80
 
 ## Tar options
-TAR_ARGS="-b 1024"
+TAR_ARGS="-b 4096"
 
 ## Mbuffer options
-TAPE_BUFFER_SIZE="26G"
+TAPE_BUFFER_SIZE="4G"
 
 ## Command location
 TAR=/bin/tar
@@ -33,15 +33,13 @@ ZSTD=/usr/bin/zstd
 MBUFFER=/usr/bin/mbuffer
 OPENSSL=/usr/bin/openssl
 
-## Command
-COMPRESSION_CMD="zstd -3"
-DECOMPRESSION_CMD="zstd -3 -d"
-
+## Compression
+ENABLE_COMPRESSION=false
 
 ## Logs
-FILE_LOG="files-$(date -I).log"
-BACKUP_LOG="backup-$(date -I).log"
-RESTORE_FILE_LOG="restore-$(date -I).log"
+BACKUP_FILE_LOG="backup-files-$(date "+%Y-%m-%d_%N").log"
+TASK_LOG="task-log-$(date "+%Y-%m-%d_%N").log"
+RESTORE_FILE_LOG="restore-files-$(date "+%Y-%m-%d_%N").log"
 
 ## Encryption
 ENABLE_ENCRYPTION=false

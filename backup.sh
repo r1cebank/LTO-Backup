@@ -22,7 +22,6 @@ case $rt in
     ;;
 esac
 
-
-select_tape
 detect_tape
+select_tape
 select_task

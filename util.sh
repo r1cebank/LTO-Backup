@@ -1,3 +1,7 @@
+log() {
+    echo "[$(date --rfc-3339=seconds)]: $*" >> $TASK_LOG
+}
+
 check_dependencies() {
     if ! [ -x "$(command -v dialog)" ]; then
         echo "Please install dialog"
@@ -21,10 +25,6 @@ check_dependencies() {
     fi
     if ! [ -x "$(command -v mt-st)" ]; then
         dialog --title "LTO Backup" --msgbox "mt-st is not installed." $HEIGHT $WIDTH
-        exit 1
-    fi
-    if ! [ -x "$(command -v pipemeter)" ]; then
-        dialog --title "LTO Backup" --msgbox "pipemeter is not installed." $HEIGHT $WIDTH
         exit 1
     fi
     if ! [ -x "$(command -v zstd)" ]; then
@@ -53,9 +53,11 @@ select_tape() {
     case $tape_section in
         1 )
         TAPE_SIZE=$LTO3_SIZE
+        $MT -f $TAPE_DEVICE stoptions scsi2logical
         ;;
         2 )
         TAPE_SIZE=$LTO4_SIZE
+        $MT -f $TAPE_DEVICE stoptions scsi2logical
         ;;
         3 )
         TAPE_SIZE=$LTO5_SIZE
@@ -78,7 +80,7 @@ detect_tape() {
         while read device; do
             tape_devices+=($i "$device")
             (( i++ ))
-        done < <(lsscsi | grep -Eio "/dev/st[0-9]")
+        done < <(ls /dev/nst* -d | grep "/dev/nst[0-9]$")
         tape_section=$(dialog \
             --backtitle "LTO Backup" \
             --title "Device Selection" \
@@ -88,7 +90,7 @@ detect_tape() {
             "${tape_devices[@]}" \
             --output-fd 1)
         TAPE_DEVICE=${tape_devices[$tape_section]}
-        mt -f $TAPE_DEVICE status
+        $MT -f $TAPE_DEVICE status
         rt=$?
         if [ $rt -eq 0 ]; then
             dialog --title "LTO Backup" --msgbox "Tape drive connected successfully" $HEIGHT $WIDTH
@@ -102,20 +104,24 @@ detect_tape() {
 }
 
 eject_tape() {
-    echo "Ejecting tape $TAPE_DEVICE $(date)" >> $BACKUP_LOG
-    [ -e $MT ] && mt -f $TAPE_DEVICE status | grep ONLINE >/dev/null
+    log "Ejecting tape $TAPE_DEVICE"
+    [ -e $MT ] && $MT -f $TAPE_DEVICE status | grep ONLINE >/dev/null
         rt=$?
     if [[ $rt -eq 0 ]]
     then
-        [ -e $MT ] && $MT -f $TAPE_DEVICE rewind
+        [ -e $MT ] && rewind_tape
         [ -e $MT ] && $MT -f $TAPE_DEVICE eject
     fi
+}
+
+rewind_tape() {
+    $MT -f $TAPE_DEVICE rewind
 }
 
 wait_for_tape() {
     while true
     do
-        mt -f $TAPE_DEVICE status | grep ONLINE >/dev/null
+        $MT -f $TAPE_DEVICE status | grep ONLINE >/dev/null
         rt=$?
         if [[ $rt -eq 0 ]]
         then
@@ -123,14 +129,14 @@ wait_for_tape() {
         fi
         dialog --title "LTO Backup" --msgbox "Please load tape to device and select OK." $HEIGHT $WIDTH
     done
-    echo "Tape loaded $TAPE_DEVICE $(date)" >> $BACKUP_LOG
+    log "Tape loaded $TAPE_DEVICE"
 }
 
 wait_for_tape_silent() {
-    echo "Waiting new tape in: $TAPE_DEVICE $(date)" >> $BACKUP_LOG
+    log "Waiting new tape in: $TAPE_DEVICE"
     while true
     do
-        mt -f $TAPE_DEVICE status | grep ONLINE >/dev/null
+        $MT -f $TAPE_DEVICE status | grep ONLINE >/dev/null
         rt=$?
         if [[ $rt -eq 0 ]]
         then
@@ -138,12 +144,17 @@ wait_for_tape_silent() {
         fi
         sleep 2
     done
-    echo "Tape loaded $TAPE_DEVICE $(date)" >> $BACKUP_LOG
+    log "Tape loaded $TAPE_DEVICE"
 }
 
 wait_for_next_tape() {
     eject_tape
     wait_for_tape
+}
+
+wait_for_next_tape_silent() {
+    eject_tape
+    wait_for_tape_silent
 }
 
 select_source() {
@@ -219,6 +230,19 @@ enable_encryption() {
     esac
 }
 
+enable_compression() {
+    dialog --title "Compression" --yesno "Enable compression?" $HEIGHT $WIDTH
+    rt=$?
+    case $rt in
+        0)
+            ENABLE_COMPRESSION=true
+        ;;
+        1)
+            ENABLE_COMPRESSION=false
+        ;;
+    esac
+}
+
 text_prompt() {
     input_text=$(dialog --title "$1" --backtitle "LTO Backup" --inputbox "$2"  $HEIGHT $WIDTH --output-fd 1)
     echo $input_text
@@ -258,6 +282,31 @@ select_task() {
     esac
 }
 
+prepare_backup() {
+    case $ENABLE_COMPRESSION in
+        true )
+            $MT -f $BACKUP_SOURCE compression 1
+        ;;
+        false )
+            $MT -f $BACKUP_SOURCE compression 0
+        ;;
+    esac
+    wait_for_tape
+    rewind_tape
+
+    # Clear the log files
+    > $TASK_LOG
+    > $BACKUP_FILE_LOG
+}
+
+prepare_restore() {
+    wait_for_tape
+    rewind_tape
+    # Clear the log files
+    > $TASK_LOG
+    > $RESTORE_FILE_LOG
+}
+
 backup() {
     size=$( estimate_size )
     raw_size=$( estimate_raw_size )
@@ -266,48 +315,51 @@ backup() {
     dialog --title "LTO Backup" --msgbox "Estimated backup size: ${size}.\nEstimated tape(s) required: ${tape_required}.\n\nEstimated time to completion: ${estimated_time}." $HEIGHT $WIDTH
     label=$( text_prompt "Backup Name" "Enter the name for this backup task" )
 
-    if [ -z "$label" ] 
+    if [ -z "$label" ]
     then
         clear
         echo "Backup aborted."
         exit
     fi
 
-    enable_encryption $label
+    enable_compression
+    # enable_encryption $label
     confirm "Run backup task?"
 
-    wait_for_tape
+    prepare_backup
 
-    echo "Backup started for $BACKUP_SOURCE to $TAPE_DEVICE $(date)" >> $BACKUP_LOG
+    log "Backup task: $label"
+    log "Backup started for $BACKUP_SOURCE to $TAPE_DEVICE"
+    log "Encryption: $ENABLE_ENCRYPTION"
+    log "Compression: $ENABLE_COMPRESSION"
 
     ## Start the backup task
     case $ENABLE_ENCRYPTION in
         true )
-            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE"  2> $FILE_LOG | \
-            pipemeter -s $raw_size -a -b $BLOCK_SIZE -l | \
-            $COMPRESSION_CMD | \
-            $OPENSSL enc -aes-256-cbc -pass file:$ENCRYPTION_KEY | \
-            $MBUFFER \
-                -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_tape_silent\"" \
-                -P 100 \
-                -m $TAPE_BUFFER_SIZE \
-                -f \
-                -o $TAPE_DEVICE \
-                -L \
-                -s$BLOCK_SIZE | dialog --programbox "Backup Progress" $HEIGHT $WIDTH
+            # $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE"  2> $BACKUP_FILE_LOG | \
+            # $COMPRESSION_CMD | \
+            # $OPENSSL enc -aes-256-cbc -pass file:$ENCRYPTION_KEY | \
+            # $MBUFFER \
+            #     -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+            #     -P 95 \
+            #     -m $TAPE_BUFFER_SIZE \
+            #     -f \
+            #     -o $TAPE_DEVICE \
+            #     -L \
+            #     -s $BLOCK_SIZE
+            echo "encryption not tested"
+            exit 1
         ;;
         false )
-            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE" 2> $FILE_LOG | \
-            pipemeter -s $raw_size -a -b $BLOCK_SIZE -l | \
-            $COMPRESSION_CMD | \
+            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE" 2> $BACKUP_FILE_LOG | \
             $MBUFFER \
-                -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_tape_silent\"" \
-                -P 100 \
+                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+                -P 95 \
                 -m $TAPE_BUFFER_SIZE \
                 -f \
                 -o $TAPE_DEVICE \
                 -L \
-                -s$BLOCK_SIZE
+                -s $BLOCK_SIZE
         ;;
         * )
             clear
@@ -315,56 +367,59 @@ backup() {
             exit
         ;;
     esac
-    
+
     rt=$?
     if [ ! $rt -eq 0 ]
     then
-        echo "Backup failed $rt $(date)" >> $BACKUP_LOG
+        log  "Backup failed $rt"
         dialog --title "LTO Backup" --msgbox "Backup failed tar $rt." $HEIGHT $WIDTH
     else
-        echo "Backup finished $(date)" >> $BACKUP_LOG
+        log  "Backup finished"
+        eject_tape
         dialog --title "LTO Backup" --msgbox "Backup finished successfully." $HEIGHT $WIDTH
     fi
-    eject_tape
 }
 
 restore() {
     tapes_count=$( text_prompt "Tape Count" "Enter the number of tapes used for restore" )
 
-    if [ -z "$tapes_count" ] 
+    if [ -z "$tapes_count" ]
     then
         clear
         echo "Restore aborted."
         exit
     fi
 
-    wait_for_tape
+    confirm "Run restore task?"
+
+    prepare_restore
+
+    log "Restore started for $TAPE_DEVICE to $RESTORE_DESTINATION with $tapes_count tapes"
 
     $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-        -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_tape_silent\"" \
+        -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
         -P 100 \
-        -m 0.5g \
+        -m $TAPE_BUFFER_SIZE \
         -f \
         -L \
         -q \
-        -s$BLOCK_SIZE |
-        $DECOMPRESSION_CMD | \
-        $TAR $TAR_ARGS -xvf - -C "$RESTORE_DESTINATION" 2> $RESTORE_FILE_LOG
+        -s $BLOCK_SIZE |
+        $TAR $TAR_ARGS -xvf - -C "$RESTORE_DESTINATION" | tee $RESTORE_FILE_LOG
 
     rt=$?
     if [ ! $rt -eq 0 ]
     then
         dialog --title "LTO Backup" --msgbox "Restore failed $rt." $HEIGHT $WIDTH
     else
+        eject_tape
         dialog --title "LTO Backup" --msgbox "Restore finished successfully." $HEIGHT $WIDTH
     fi
-    eject_tape
 }
 
 list_backups() {
     tapes_count=$( text_prompt "Tape Count" "Enter the number of tapes used for restore" )
 
-    if [ -z "$tapes_count" ] 
+    if [ -z "$tapes_count" ]
     then
         clear
         echo "Restore aborted."
@@ -372,15 +427,16 @@ list_backups() {
     fi
 
     wait_for_tape
+    rewind_tape
 
     $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-        -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_tape_silent\"" \
+        -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
         -P 100 \
-        -m 0.5g \
+        -m $TAPE_BUFFER_SIZE \
         -f \
         -L \
         -q \
-        -s$BLOCK_SIZE |
-        $DECOMPRESSION_CMD | \
-        $TAR $TAR_ARGS -tvf - -C $(mktemp -d) | dialog --programbox "File List" $HEIGHT $WIDTH
+        -s $BLOCK_SIZE |
+        $TAR $TAR_ARGS -tvf - -C $(mktemp -d) | awk '{print $NF}' | dialog --programbox "File List" $HEIGHT $WIDTH
+    eject_tape
 }
