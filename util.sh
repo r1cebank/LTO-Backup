@@ -27,10 +27,6 @@ check_dependencies() {
         dialog --title "LTO Backup" --msgbox "mt-st is not installed." $HEIGHT $WIDTH
         exit 1
     fi
-    if ! [ -x "$(command -v zstd)" ]; then
-        dialog --title "LTO Backup" --msgbox "zstd is not installed." $HEIGHT $WIDTH
-        exit 1
-    fi
     if ! [ -x "$(command -v calc)" ]; then
         dialog --title "LTO Backup" --msgbox "calc is not installed." $HEIGHT $WIDTH
         exit 1
