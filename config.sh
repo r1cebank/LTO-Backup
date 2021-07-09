@@ -10,7 +10,7 @@ LTO6_SIZE="2500*1000*1000*1000"
 TAPE_SIZE=$LTO6_SIZE
 
 TAPE_SPEED="160*1000*1000"
-BLOCK_SIZE="512K"
+BLOCK_SIZE="256K"
 
 ## Backup source and restore destination
 BACKUP_SOURCE=
@@ -29,7 +29,6 @@ TAPE_BUFFER_SIZE="4G"
 ## Command location
 TAR=/bin/tar
 MT=/bin/mt-st
-ZSTD=/usr/bin/zstd
 MBUFFER=/usr/bin/mbuffer
 OPENSSL=/usr/bin/openssl
 
