@@ -246,9 +246,18 @@ enable_encryption() {
     case $rt in
         0)
             ENABLE_ENCRYPTION=true
-            ENCRYPTION_KEY="$(date +%m%d%Y_%H%M%S)-$1.key"
-            $OPENSSL rand 512 > $ENCRYPTION_KEY
-            dialog --title "LTO Backup" --msgbox "Encryption key generated in ${ENCRYPTION_KEY}." $HEIGHT $WIDTH
+            dialog --title "Encryption" --yesno "Use existing encryption key?" $HEIGHT $WIDTH
+            rt=$?
+            case $rt in
+                0)
+                    select_encryption_key
+                ;;
+                1)
+                    ENCRYPTION_KEY="$(date +%m%d%Y_%H%M%S)-$1.key"
+                    $OPENSSL rand 512 > $ENCRYPTION_KEY
+                    dialog --title "LTO Backup" --msgbox "Encryption key generated in ${ENCRYPTION_KEY}." $HEIGHT $WIDTH
+                ;;
+            esac
         ;;
         1)
             ENABLE_ENCRYPTION=false
@@ -472,17 +481,35 @@ list_backups() {
         exit
     fi
 
+    enable_decryption
+
     wait_for_tape
     rewind_tape
 
-    $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-        -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
-        -P 100 \
-        -m $TAPE_BUFFER_SIZE \
-        -f \
-        -L \
-        -q \
-        -s $BLOCK_SIZE |
-        $TAR $TAR_ARGS -tvf - -C $(mktemp -d) | awk '{print $NF}' | dialog --programbox "File List" $HEIGHT $WIDTH
+    case $ENABLE_ENCRYPTION in
+        true )
+            $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
+                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+                -P 100 \
+                -m $TAPE_BUFFER_SIZE \
+                -f \
+                -L \
+                -q \
+                -s $BLOCK_SIZE |
+                $OPENSSL enc $DECRYPT_CMD -pass file:$ENCRYPTION_KEY |
+                $TAR $TAR_ARGS -tvf - -C $(mktemp -d) | awk '{print $NF}' | dialog --programbox "File List" $HEIGHT $WIDTH
+        ;;
+        false )
+            $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
+                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+                -P 100 \
+                -m $TAPE_BUFFER_SIZE \
+                -f \
+                -L \
+                -q \
+                -s $BLOCK_SIZE |
+                $TAR $TAR_ARGS -tvf - -C $(mktemp -d) | awk '{print $NF}' | dialog --programbox "File List" $HEIGHT $WIDTH
+        ;;
+    esac
     eject_tape
 }
