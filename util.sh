@@ -311,10 +311,10 @@ select_task() {
 prepare_backup() {
     case $ENABLE_COMPRESSION in
         true )
-            $MT -f $BACKUP_SOURCE compression 1
+            $MT -f $TAPE_DEVICE compression 1
         ;;
         false )
-            $MT -f $BACKUP_SOURCE compression 0
+            $MT -f $TAPE_DEVICE compression 0
         ;;
     esac
     wait_for_tape
