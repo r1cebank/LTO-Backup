@@ -44,3 +44,5 @@ RESTORE_FILE_LOG="restore-files-$(date "+%Y-%m-%d_%N").log"
 ## Encryption
 ENABLE_ENCRYPTION=false
 ENCRYPTION_KEY=
+ENCRYPT_CMD="-aes-256-cbc"
+DECRYPT_CMD="-d -aes-256-cbc"

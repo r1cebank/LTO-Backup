@@ -153,6 +153,36 @@ wait_for_next_tape_silent() {
     wait_for_tape_silent
 }
 
+enable_decryption() {
+    dialog --title "Encryption" --yesno "Is data on the tape encrypted?" $HEIGHT $WIDTH
+    rt=$?
+    case $rt in
+        0)
+            ENABLE_ENCRYPTION=true
+            select_encryption_key
+        ;;
+        1)
+            ENABLE_ENCRYPTION=false
+        ;;
+    esac
+}
+
+select_encryption_key() {
+    ENCRYPTION_KEY=$(dialog \
+        --backtitle "LTO Backup" \
+        --title "Encryption Key" \
+        --clear \
+        --cancel-label "Exit" \
+        --fselect / $HEIGHT $WIDTH \
+        --output-fd 1)
+    if [ -f "$ENCRYPTION_KEY" ]; then
+        dialog --title "LTO Backup" --msgbox "You selected encryption key $ENCRYPTION_KEY." $HEIGHT $WIDTH
+    else
+        dialog --title "LTO Backup" --msgbox "Encryption key does not exist." $HEIGHT $WIDTH
+        exit 1
+    fi
+}
+
 select_source() {
     BACKUP_SOURCE=$(dialog \
         --backtitle "LTO Backup" \
@@ -319,7 +349,7 @@ backup() {
     fi
 
     enable_compression
-    # enable_encryption $label
+    enable_encryption $label
     confirm "Run backup task?"
 
     prepare_backup
@@ -332,19 +362,16 @@ backup() {
     ## Start the backup task
     case $ENABLE_ENCRYPTION in
         true )
-            # $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE"  2> $BACKUP_FILE_LOG | \
-            # $COMPRESSION_CMD | \
-            # $OPENSSL enc -aes-256-cbc -pass file:$ENCRYPTION_KEY | \
-            # $MBUFFER \
-            #     -A "bash -c \"BACKUP_LOG=$BACKUP_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
-            #     -P 95 \
-            #     -m $TAPE_BUFFER_SIZE \
-            #     -f \
-            #     -o $TAPE_DEVICE \
-            #     -L \
-            #     -s $BLOCK_SIZE
-            echo "encryption not tested"
-            exit 1
+            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE"  2> $BACKUP_FILE_LOG | \
+            $OPENSSL enc $ENCRYPT_CMD -pass file:$ENCRYPTION_KEY | \
+            $MBUFFER \
+                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+                -P 95 \
+                -m $TAPE_BUFFER_SIZE \
+                -f \
+                -o $TAPE_DEVICE \
+                -L \
+                -s $BLOCK_SIZE
         ;;
         false )
             $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE" 2> $BACKUP_FILE_LOG | \
@@ -386,21 +413,44 @@ restore() {
         exit
     fi
 
+    enable_decryption
+
     confirm "Run restore task?"
 
     prepare_restore
 
     log "Restore started for $TAPE_DEVICE to $RESTORE_DESTINATION with $tapes_count tapes"
 
-    $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-        -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
-        -P 100 \
-        -m $TAPE_BUFFER_SIZE \
-        -f \
-        -L \
-        -q \
-        -s $BLOCK_SIZE |
-        $TAR $TAR_ARGS -xvf - -C "$RESTORE_DESTINATION" | tee $RESTORE_FILE_LOG
+    case $ENABLE_ENCRYPTION in
+        true )
+            $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
+                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+                -P 100 \
+                -m $TAPE_BUFFER_SIZE \
+                -f \
+                -L \
+                -q \
+                -s $BLOCK_SIZE |
+                $OPENSSL enc $DECRYPT_CMD -pass file:$ENCRYPTION_KEY |
+                $TAR $TAR_ARGS -xvf - -C "$RESTORE_DESTINATION" | tee $RESTORE_FILE_LOG
+        ;;
+        false )
+            $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
+                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+                -P 100 \
+                -m $TAPE_BUFFER_SIZE \
+                -f \
+                -L \
+                -q \
+                -s $BLOCK_SIZE |
+                $TAR $TAR_ARGS -xvf - -C "$RESTORE_DESTINATION" | tee $RESTORE_FILE_LOG
+        ;;
+        * )
+            clear
+            echo "Backup aborted."
+            exit
+        ;;
+    esac
 
     rt=$?
     if [ ! $rt -eq 0 ]
