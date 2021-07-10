@@ -33,7 +33,9 @@ MBUFFER=/usr/bin/mbuffer
 OPENSSL=/usr/bin/openssl
 
 ## Compression
-ENABLE_COMPRESSION=false
+ENABLE_COMPRESSION=
+COMPRESSION_CMD="zstd -10"
+DECOMPRESSION_CMD="zstd -10 -d"
 
 ## Logs
 BACKUP_FILE_LOG="backup-files-$(date "+%Y-%m-%d_%N").log"
@@ -41,7 +43,7 @@ TASK_LOG="task-log-$(date "+%Y-%m-%d_%N").log"
 RESTORE_FILE_LOG="restore-files-$(date "+%Y-%m-%d_%N").log"
 
 ## Encryption
-ENABLE_ENCRYPTION=false
+ENABLE_ENCRYPTION=
 ENCRYPTION_KEY=
 ENCRYPT_CMD="-aes-256-cbc -salt -pbkdf2"
 DECRYPT_CMD="-d -aes-256-cbc -salt -pbkdf2"

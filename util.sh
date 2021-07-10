@@ -161,9 +161,6 @@ enable_decryption() {
             ENABLE_ENCRYPTION=true
             select_encryption_key
         ;;
-        1)
-            ENABLE_ENCRYPTION=false
-        ;;
     esac
 }
 
@@ -259,9 +256,6 @@ enable_encryption() {
                 ;;
             esac
         ;;
-        1)
-            ENABLE_ENCRYPTION=false
-        ;;
     esac
 }
 
@@ -271,9 +265,6 @@ enable_compression() {
     case $rt in
         0)
             ENABLE_COMPRESSION=true
-        ;;
-        1)
-            ENABLE_COMPRESSION=false
         ;;
     esac
 }
@@ -318,20 +309,15 @@ select_task() {
 }
 
 prepare_backup() {
-    case $ENABLE_COMPRESSION in
-        true )
-            $MT -f $TAPE_DEVICE compression 1
-        ;;
-        false )
-            $MT -f $TAPE_DEVICE compression 0
-        ;;
-    esac
+    # disable drive compression since we use zstd
+    $MT -f $TAPE_DEVICE compression 0
     wait_for_tape
     rewind_tape
 
     # Clear the log files
     > $TASK_LOG
     > $BACKUP_FILE_LOG
+    clear
 }
 
 prepare_restore() {
@@ -340,6 +326,7 @@ prepare_restore() {
     # Clear the log files
     > $TASK_LOG
     > $RESTORE_FILE_LOG
+    clear
 }
 
 backup() {
@@ -369,36 +356,17 @@ backup() {
     log "Compression: $ENABLE_COMPRESSION"
 
     ## Start the backup task
-    case $ENABLE_ENCRYPTION in
-        true )
-            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE"  2> $BACKUP_FILE_LOG | \
-            $OPENSSL enc $ENCRYPT_CMD -pass file:$ENCRYPTION_KEY | \
-            $MBUFFER \
-                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
-                -P 95 \
-                -m $TAPE_BUFFER_SIZE \
-                -f \
-                -o $TAPE_DEVICE \
-                -L \
-                -s $BLOCK_SIZE
-        ;;
-        false )
-            $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE" 2> $BACKUP_FILE_LOG | \
-            $MBUFFER \
-                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
-                -P 95 \
-                -m $TAPE_BUFFER_SIZE \
-                -f \
-                -o $TAPE_DEVICE \
-                -L \
-                -s $BLOCK_SIZE
-        ;;
-        * )
-            clear
-            echo "Backup aborted."
-            exit
-        ;;
-    esac
+    $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE"  2> $BACKUP_FILE_LOG | \
+    ( [ -z "$ENABLE_COMPRESSION" ] && cat || $COMPRESSION_CMD ) | \
+    ( [ -z "$ENABLE_ENCRYPTION" ] && cat || $OPENSSL enc $ENCRYPT_CMD -pass file:$ENCRYPTION_KEY ) | \
+    $MBUFFER \
+        -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+        -P 95 \
+        -m $TAPE_BUFFER_SIZE \
+        -f \
+        -o $TAPE_DEVICE \
+        -L \
+        -s $BLOCK_SIZE
 
     rt=$?
     if [ ! $rt -eq 0 ]
@@ -423,6 +391,7 @@ restore() {
     fi
 
     enable_decryption
+    enable_compression
 
     confirm "Run restore task?"
 
@@ -430,36 +399,18 @@ restore() {
 
     log "Restore started for $TAPE_DEVICE to $RESTORE_DESTINATION with $tapes_count tapes"
 
-    case $ENABLE_ENCRYPTION in
-        true )
-            $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
-                -P 100 \
-                -m $TAPE_BUFFER_SIZE \
-                -f \
-                -L \
-                -q \
-                -s $BLOCK_SIZE |
-                $OPENSSL enc $DECRYPT_CMD -pass file:$ENCRYPTION_KEY |
-                $TAR $TAR_ARGS -xvf - -C "$RESTORE_DESTINATION" | tee $RESTORE_FILE_LOG
-        ;;
-        false )
-            $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
-                -P 100 \
-                -m $TAPE_BUFFER_SIZE \
-                -f \
-                -L \
-                -q \
-                -s $BLOCK_SIZE |
-                $TAR $TAR_ARGS -xvf - -C "$RESTORE_DESTINATION" | tee $RESTORE_FILE_LOG
-        ;;
-        * )
-            clear
-            echo "Backup aborted."
-            exit
-        ;;
-    esac
+    $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
+        -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+        -P 100 \
+        -m $TAPE_BUFFER_SIZE \
+        -f \
+        -L \
+        -q \
+        -s $BLOCK_SIZE |
+        ( [ -z "$ENABLE_ENCRYPTION" ] && cat || $OPENSSL enc $DECRYPT_CMD -pass file:$ENCRYPTION_KEY ) | \
+        ( [ -z "$ENABLE_COMPRESSION" ] && cat || $DECOMPRESSION_CMD ) | \
+        $TAR $TAR_ARGS -xvf - -C "$RESTORE_DESTINATION" | tee $RESTORE_FILE_LOG
+
 
     rt=$?
     if [ ! $rt -eq 0 ]
@@ -486,30 +437,17 @@ list_backups() {
     wait_for_tape
     rewind_tape
 
-    case $ENABLE_ENCRYPTION in
-        true )
-            $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
-                -P 100 \
-                -m $TAPE_BUFFER_SIZE \
-                -f \
-                -L \
-                -q \
-                -s $BLOCK_SIZE |
-                $OPENSSL enc $DECRYPT_CMD -pass file:$ENCRYPTION_KEY |
-                $TAR $TAR_ARGS -tvf - -C $(mktemp -d) | awk '{print $NF}' | dialog --programbox "File List" $HEIGHT $WIDTH
-        ;;
-        false )
-            $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
-                -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
-                -P 100 \
-                -m $TAPE_BUFFER_SIZE \
-                -f \
-                -L \
-                -q \
-                -s $BLOCK_SIZE |
-                $TAR $TAR_ARGS -tvf - -C $(mktemp -d) | awk '{print $NF}' | dialog --programbox "File List" $HEIGHT $WIDTH
-        ;;
-    esac
+    $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
+        -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+        -P 100 \
+        -m $TAPE_BUFFER_SIZE \
+        -f \
+        -L \
+        -q \
+        -s $BLOCK_SIZE |
+        ( [ -z "$ENABLE_ENCRYPTION" ] && cat || $OPENSSL enc $DECRYPT_CMD -pass file:$ENCRYPTION_KEY ) | \
+        ( [ -z "$ENABLE_COMPRESSION" ] && cat || $DECOMPRESSION_CMD ) | \
+        $TAR $TAR_ARGS -tvf - -C $(mktemp -d) | awk '{print $NF}' | dialog --programbox "File List" $HEIGHT $WIDTH
+
     eject_tape
 }
