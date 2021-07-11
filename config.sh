@@ -24,7 +24,7 @@ WIDTH=80
 TAR_ARGS="-b 4096"
 
 ## Mbuffer options
-TAPE_BUFFER_SIZE="4G"
+TAPE_BUFFER_SIZE="26G"
 
 ## Command location
 TAR=/bin/tar
@@ -34,7 +34,7 @@ OPENSSL=/usr/bin/openssl
 
 ## Compression
 ENABLE_COMPRESSION=
-COMPRESSION_CMD="zstd -10"
+COMPRESSION_CMD="zstd -10 -T0"
 DECOMPRESSION_CMD="zstd -10 -d"
 
 ## Logs

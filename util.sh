@@ -154,7 +154,7 @@ wait_for_next_tape_silent() {
 }
 
 enable_decryption() {
-    dialog --title "Encryption" --yesno "Is data on the tape encrypted?" $HEIGHT $WIDTH
+    dialog --title "Encryption" --yesno "Was data on the tape encrypted?" $HEIGHT $WIDTH
     rt=$?
     case $rt in
         0)
@@ -269,6 +269,16 @@ enable_compression() {
     esac
 }
 
+enable_decompression() {
+    dialog --title "Compression" --yesno "Was compression enabled during backup?" $HEIGHT $WIDTH
+    rt=$?
+    case $rt in
+        0)
+            ENABLE_COMPRESSION=true
+        ;;
+    esac
+}
+
 text_prompt() {
     input_text=$(dialog --title "$1" --backtitle "LTO Backup" --inputbox "$2"  $HEIGHT $WIDTH --output-fd 1)
     echo $input_text
@@ -313,6 +323,7 @@ prepare_backup() {
     $MT -f $TAPE_DEVICE compression 0
     wait_for_tape
     rewind_tape
+    backup_script
 
     # Clear the log files
     > $TASK_LOG
@@ -323,10 +334,28 @@ prepare_backup() {
 prepare_restore() {
     wait_for_tape
     rewind_tape
+    skip_to_data
     # Clear the log files
     > $TASK_LOG
     > $RESTORE_FILE_LOG
     clear
+}
+
+backup_script() {
+    # Backup current script and config, allow restore with only tape
+    echo "ENABLE_COMPRESSION=$ENABLE_COMPRESSION" >> custom.sh
+    echo "ENABLE_ENCRYPTION=$ENABLE_ENCRYPTION" >> custom.sh
+    echo "BACKUP_SOURCE=$BACKUP_SOURCE" >> custom.sh
+    echo "TAPE_DEVICE=$TAPE_DEVICE" >> custom.sh
+    echo "ENCRYPTION_KEY=$ENCRYPTION_KEY" >> custom.sh
+    echo "TAPE_SIZE=$TAPE_SIZE" >> custom.sh
+    $TAR -cvf $TAPE_DEVICE *.sh > /dev/null 2>&1
+    rm custom.sh
+}
+
+skip_to_data() {
+    # Skip the script portion and jump to file 2
+    $MT -f $TAPE_DEVICE asf 1
 }
 
 backup() {
@@ -390,9 +419,9 @@ restore() {
         exit
     fi
 
+    enable_decompression
     enable_decryption
-    enable_compression
-
+    
     confirm "Run restore task?"
 
     prepare_restore
@@ -432,10 +461,12 @@ list_backups() {
         exit
     fi
 
+    enable_decompression
     enable_decryption
 
     wait_for_tape
     rewind_tape
+    skip_to_data
 
     $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
         -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
