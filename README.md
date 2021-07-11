@@ -1,6 +1,8 @@
 # LTO-Backup
 A lightweight utility to help you backup files to LTO tapes.
 
+![Task selection](task-selection.png)
+
 ## Dependencies
 
 * dialog (terminal UI interface)
@@ -19,8 +21,12 @@ sudo ./backup.sh
 Then follow the UI interface to select your tape devices and tape type (tape type only used to estimate required tape for backup)
 
 ## Backup
+After choosing a tape drive and backup source, the script will use tar and mbuffer to backup all content in the directory to tape, when the tape is full, it will eject the current tape and once new tape is loaded, back up will continue.
+
+To check if script is waiting for tape, check the log with name `task-log*`
 
 ## Restore
+Before restore, script will ask you about encryption and compression, make sure you remember the compression setting and encryption key before restore, these setting need to match or restore is not possible. You will also need to provide the number of tapes this restore needs, this setting is fed to `mbuffer`
 
 ## Compression
 
