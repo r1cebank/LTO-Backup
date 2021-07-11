@@ -15,14 +15,6 @@ check_dependencies() {
         dialog --title "LTO Backup" --msgbox "mbuffer is not installed." $HEIGHT $WIDTH
         exit 1
     fi
-    if ! [ -x "$(command -v pv)" ]; then
-        dialog --title "LTO Backup" --msgbox "pv is not installed." $HEIGHT $WIDTH
-        exit 1
-    fi
-    if ! [ -x "$(command -v mtx)" ]; then
-        dialog --title "LTO Backup" --msgbox "mtx is not installed." $HEIGHT $WIDTH
-        exit 1
-    fi
     if ! [ -x "$(command -v mt-st)" ]; then
         dialog --title "LTO Backup" --msgbox "mt-st is not installed." $HEIGHT $WIDTH
         exit 1
