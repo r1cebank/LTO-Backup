@@ -376,8 +376,11 @@ backup() {
     log "Encryption: $ENABLE_ENCRYPTION"
     log "Compression: $ENABLE_COMPRESSION"
 
+    backup_label="$label_$(date -I)"
+
     ## Start the backup task
-    $TAR $TAR_ARGS --label="$label $(date -I)" -cvf - "$BACKUP_SOURCE"  2> $BACKUP_FILE_LOG | \
+    $TAR $TAR_ARGS --label="$backup_label" -cvf - "$BACKUP_SOURCE"  2> $BACKUP_FILE_LOG | \
+    tee >(sha512sum > $backup_label.sha512) >(tar -tv > $backup_label.lst) | \
     ( [ -z "$ENABLE_COMPRESSION" ] && cat || $COMPRESSION_CMD ) | \
     ( [ -z "$ENABLE_ENCRYPTION" ] && cat || $OPENSSL enc $ENCRYPT_CMD -pass file:$ENCRYPTION_KEY ) | \
     $MBUFFER \
@@ -397,7 +400,7 @@ backup() {
     else
         log  "Backup finished"
         eject_tape
-        dialog --title "LTO Backup" --msgbox "Backup finished successfully." $HEIGHT $WIDTH
+        dialog --title "LTO Backup" --msgbox "Backup finished successfully. Checksum file: $backup_label.sha512sum" $HEIGHT $WIDTH
     fi
 }
 
