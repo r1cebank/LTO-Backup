@@ -156,6 +156,22 @@ enable_decryption() {
     esac
 }
 
+select_checksum_file() {
+    CHECKSUM_FILE=$(dialog \
+        --backtitle "LTO Backup" \
+        --title "Checksum File" \
+        --clear \
+        --cancel-label "Exit" \
+        --fselect / $HEIGHT $WIDTH \
+        --output-fd 1)
+    if [ -f "$CHECKSUM_FILE" ]; then
+        dialog --title "LTO Backup" --msgbox "You selected checksum file $CHECKSUM_FILE." $HEIGHT $WIDTH
+    else
+        dialog --title "LTO Backup" --msgbox "Checksum file does not exist." $HEIGHT $WIDTH
+        exit 1
+    fi
+}
+
 select_encryption_key() {
     ENCRYPTION_KEY=$(dialog \
         --backtitle "LTO Backup" \
@@ -286,6 +302,7 @@ select_task() {
         "1" "Backup" \
         "2" "Restore" \
         "3" "List Backup" \
+        "4" "Verify Backup" \
         --output-fd 1)
 
     case $task_section in
@@ -301,6 +318,9 @@ select_task() {
         ;;
         3 )
             list_backups
+        ;;
+        4 )
+            verify_backup
         ;;
         * )
             clear
@@ -367,7 +387,7 @@ backup() {
 
     enable_compression
     enable_encryption $label
-    confirm "Run backup task?"
+    confirm "Run task?"
 
     prepare_backup
 
@@ -376,7 +396,7 @@ backup() {
     log "Encryption: $ENABLE_ENCRYPTION"
     log "Compression: $ENABLE_COMPRESSION"
 
-    backup_label="$label_$(date -I)"
+    backup_label="$label_$(date "+%Y-%m-%d_%N")"
 
     ## Start the backup task
     $TAR $TAR_ARGS --label="$backup_label" -cvf - "$BACKUP_SOURCE"  2> $BACKUP_FILE_LOG | \
@@ -399,9 +419,10 @@ backup() {
         dialog --title "LTO Backup" --msgbox "Backup failed tar $rt." $HEIGHT $WIDTH
     else
         log  "Backup finished"
-        eject_tape
         dialog --title "LTO Backup" --msgbox "Backup finished successfully. Checksum file: $backup_label.sha512sum" $HEIGHT $WIDTH
     fi
+
+    eject_tape
 }
 
 restore() {
@@ -417,7 +438,7 @@ restore() {
     enable_decompression
     enable_decryption
     
-    confirm "Run restore task?"
+    confirm "Run task?"
 
     prepare_restore
 
@@ -441,9 +462,10 @@ restore() {
     then
         dialog --title "LTO Backup" --msgbox "Restore failed $rt." $HEIGHT $WIDTH
     else
-        eject_tape
         dialog --title "LTO Backup" --msgbox "Restore finished successfully." $HEIGHT $WIDTH
     fi
+
+    eject_tape
 }
 
 list_backups() {
@@ -458,6 +480,8 @@ list_backups() {
 
     enable_decompression
     enable_decryption
+
+    confirm "Run task?"
 
     wait_for_tape
     rewind_tape
@@ -474,6 +498,49 @@ list_backups() {
         ( [ -z "$ENABLE_ENCRYPTION" ] && cat || $OPENSSL enc $DECRYPT_CMD -pass file:$ENCRYPTION_KEY ) | \
         ( [ -z "$ENABLE_COMPRESSION" ] && cat || $DECOMPRESSION_CMD ) | \
         $TAR $TAR_ARGS -tvf - -C $(mktemp -d) | awk '{print $NF}' | dialog --programbox "File List" $HEIGHT $WIDTH
+
+    eject_tape
+}
+
+verify_backup() {
+    tapes_count=$( text_prompt "Tape Count" "Enter the number of tapes used for verification" )
+
+    if [ -z "$tapes_count" ]
+    then
+        clear
+        echo "Verification aborted."
+        exit
+    fi
+
+    enable_decompression
+    enable_decryption
+    select_checksum_file
+
+    confirm "Run task?"
+
+    wait_for_tape
+    rewind_tape
+    skip_to_data
+
+    $MBUFFER -n $tapes_count -i $TAPE_DEVICE \
+        -A "bash -c \"TASK_LOG=$TASK_LOG TAPE_DEVICE=$TAPE_DEVICE; MT=$MT; source util.sh; wait_for_next_tape_silent\"" \
+        -P 100 \
+        -m $TAPE_BUFFER_SIZE \
+        -f \
+        -L \
+        -q \
+        -s $BLOCK_SIZE |
+        ( [ -z "$ENABLE_ENCRYPTION" ] && cat || $OPENSSL enc $DECRYPT_CMD -pass file:$ENCRYPTION_KEY ) | \
+        ( [ -z "$ENABLE_COMPRESSION" ] && cat || $DECOMPRESSION_CMD ) | \
+        sha512sum -c $CHECKSUM_FILE
+
+    rt=$?
+    if [ ! $rt -eq 0 ]
+    then
+        dialog --title "LTO Backup" --msgbox "Checksum check failed $rt." $HEIGHT $WIDTH
+    else
+        dialog --title "LTO Backup" --msgbox "Checksum verification OK." $HEIGHT $WIDTH
+    fi
 
     eject_tape
 }

@@ -47,3 +47,6 @@ ENABLE_ENCRYPTION=
 ENCRYPTION_KEY=
 ENCRYPT_CMD="-aes-256-cbc -salt -pbkdf2"
 DECRYPT_CMD="-d -aes-256-cbc -salt -pbkdf2"
+
+## Verification
+CHECKSUM_FILE=

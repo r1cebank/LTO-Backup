@@ -1,2 +1,4 @@
 *.log
 *.key
+*.lst
+*.sha512
