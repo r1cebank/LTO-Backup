@@ -25,6 +25,8 @@ After choosing a tape drive and backup source, the script will use tar and mbuff
 
 To check if script is waiting for tape, check the log with name `task-log*`
 
+Backup will also generate file list at `label-date.lst` and the sha512 checksum at `label-date.sha512`. The sha512 checksum can be used later to verify the integrity of the entire backup.
+
 ## Restore
 Before restore, script will ask you about encryption and compression, make sure you remember the compression setting and encryption key before restore, these setting need to match or restore is not possible. You will also need to provide the number of tapes this restore needs, this setting is fed to `mbuffer`
 
