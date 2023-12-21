@@ -11,8 +11,7 @@ fi
 
 check_dependencies
 
-dialog --title "Confirmation" --yesno "This tool is still in development, accept risk and continue?" $HEIGHT $WIDTH
-
+confirm "This tool is still in development, accept risk and continue?"
 rt=$?
 case $rt in
     1)
@@ -21,6 +20,10 @@ case $rt in
         exit
     ;;
 esac
+
+enable_telegram
+
+log "Test"
 
 detect_tape
 select_tape

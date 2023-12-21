@@ -1,5 +1,8 @@
 log() {
     echo "[$(date --rfc-3339=seconds)]: $*" >> $TASK_LOG
+    if [ -n "${ENABLE_TELEGRAM}" ]; then
+        curl -s --data "text=$1" --data "chat_id=$TELEGRAM_GROUP_ID" 'https://api.telegram.org/bot'$TELEGRAM_BOT_TOKEN'/sendMessage' > /dev/null
+    fi
 }
 
 check_dependencies() {
@@ -59,6 +62,22 @@ select_tape() {
         exit
         ;;
     esac
+}
+
+enable_telegram() {
+    dialog --title "Telegram" --yesno "Enable telegram notification?" $HEIGHT $WIDTH
+    rt=$?
+    case $rt in
+        0)
+            ENABLE_TELEGRAM=true
+            input_telegram_bot_key
+        ;;
+    esac
+}
+
+input_telegram_bot_key() {
+    TELEGRAM_GROUP_ID=$( text_prompt "Telegram" "Enter the chat id" )
+    TELEGRAM_BOT_TOKEN=$( text_prompt "Telegram" "Enter the bot token" )
 }
 
 detect_tape() {

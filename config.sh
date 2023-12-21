@@ -24,7 +24,7 @@ WIDTH=80
 TAR_ARGS="-b 4096"
 
 ## Mbuffer options
-TAPE_BUFFER_SIZE="26G"
+TAPE_BUFFER_SIZE="2G"
 
 ## Command location
 TAR=/bin/tar
@@ -50,3 +50,8 @@ DECRYPT_CMD="-d -aes-256-cbc -salt -pbkdf2"
 
 ## Verification
 CHECKSUM_FILE=
+
+## Notification
+ENABLE_TELEGRAM=
+TELEGRAM_GROUP_ID=
+TELEGRAM_BOT_TOKEN=
